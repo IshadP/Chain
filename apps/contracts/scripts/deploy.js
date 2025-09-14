@@ -32,7 +32,6 @@ async function main() {
 
   const deploymentPath = path.join(__dirname, "../../web/lib/deployment.json");
   
-  // Ensure the lib directory exists
   const libDir = path.dirname(deploymentPath);
   if (!fs.existsSync(libDir)) {
     fs.mkdirSync(libDir, { recursive: true });

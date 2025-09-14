@@ -17,12 +17,12 @@ export interface BatchData {
 }
 
 export class BlockchainService {
-  private provider: ethers.providers.JsonRpcProvider
+  private provider: ethers.JsonRpcProvider
   private contract: ethers.Contract
 
   constructor() {
     // Use your RPC endpoint (e.g., Infura, Alchemy, or local node)
-    this.provider = new ethers.providers.JsonRpcProvider(
+    this.provider = new ethers.JsonRpcProvider(
       process.env.NEXT_PUBLIC_RPC_URL || 'http://localhost:8545'
     )
     this.contract = new ethers.Contract(

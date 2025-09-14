@@ -132,9 +132,7 @@ export default function ManufacturerPage() {
             </Button>
           </div>
           <div className="flex items-center gap-4">
-            <Button className="bg-red-400 hover:bg-red-700">
-              <SignOutButton redirectURL="/" />
-            </Button>
+              <SignOutButton/>
             <UserButton />
           </div>
         </div>
