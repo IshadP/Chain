@@ -1,43 +1,63 @@
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server'
 import { NextRequest, NextResponse } from 'next/server'
 
-const isAdminRoute = createRouteMatcher(['/admin(.*)'])
 const isOnboardingRoute = createRouteMatcher(['/onboarding'])
 const isPublicRoute = createRouteMatcher(['/public-route-example'])
+const isDashboardRoute = createRouteMatcher(['/dashboard'])
+
+interface SessionMetadata {
+  onboardingComplete?: boolean;
+  role?: 'manufacturer' | 'distributor' | 'retailer';
+}
 
 export default clerkMiddleware(async (auth, req: NextRequest) => {
-  const { userId, sessionClaims, redirectToSignIn } = await auth()
+  const { isAuthenticated, sessionClaims, redirectToSignIn } = await auth()
+  const metadata = sessionClaims?.metadata as SessionMetadata;
 
-  // For users visiting /onboarding, don't try to redirect
-  if (userId && isOnboardingRoute(req)) {
+  // If the user isn't signed in and the route is private, redirect to sign-in
+  if (!isAuthenticated && !isPublicRoute(req)) {
+    return redirectToSignIn({ returnBackUrl: req.url })
+  }
+
+  // If user is authenticated, check their onboarding status
+  if (isAuthenticated) {
+    const hasValidRole = metadata?.role && ['manufacturer', 'distributor', 'retailer'].includes(metadata.role)
+    const isOnboardingComplete = metadata?.onboardingComplete === true
+
+     if (req.nextUrl.pathname === '/') {
+    if (isOnboardingComplete && hasValidRole) {
+      console.log('Redirecting from root to dashboard')
+      const dashboardUrl = new URL('/dashboard', req.url)
+      return NextResponse.redirect(dashboardUrl)
+    } else {
+      console.log('Redirecting from root to onboarding')
+      const onboardingUrl = new URL('/onboarding', req.url)
+      return NextResponse.redirect(onboardingUrl)
+    }
+  }
+
+    // If user is on onboarding route and already completed onboarding with valid role, redirect to dashboard
+    if (isOnboardingRoute(req) && isOnboardingComplete && hasValidRole) {
+      const dashboardUrl = new URL('/dashboard', req.url)
+      return NextResponse.redirect(dashboardUrl)
+    }
+
+    // If user is visiting onboarding route and hasn't completed onboarding, allow access
+    if (isOnboardingRoute(req)) {
+      return NextResponse.next()
+    }
+
+    // If user hasn't completed onboarding or doesn't have a valid role, redirect to onboarding
+    if (!isOnboardingComplete || !hasValidRole) {
+      const onboardingUrl = new URL('/onboarding', req.url)
+      return NextResponse.redirect(onboardingUrl)
+    }
+
+    // If user is authenticated and onboarding is complete with valid role, allow access to protected routes
     return NextResponse.next()
   }
 
-  // If the user isn't signed in and the route is private, redirect to sign-in
-  if (!userId && !isPublicRoute(req)) return redirectToSignIn({ returnBackUrl: req.url })
-
-  // Catch users who do not have `onboardingComplete: true` in their publicMetadata
-  // Redirect them to the /onboarding route to complete onboarding
-  if (userId && !sessionClaims?.metadata?.onboardingComplete) {
-    const onboardingUrl = new URL('/onboarding', req.url)
-    return NextResponse.redirect(onboardingUrl)
-  }
-
-  // If the user is logged in and the route is protected, let them view.
-  if (userId && !isPublicRoute(req)) {
-  const role = sessionClaims?.metadata?.role
-  let redirectUrl = '/'
-  if (role === 'manufacturer') redirectUrl = '/manufacturer'
-  else if (role === 'distributor') redirectUrl = '/distributor'
-  else if (role === 'retailer') redirectUrl = '/retailer'
-  else if (role === 'admin') redirectUrl = '/admin'
-
-  // Only redirect if user is on the root path
-  if (req.nextUrl.pathname === '/') {
-    return NextResponse.redirect(new URL(redirectUrl, req.url))
-  }
   return NextResponse.next()
-}
 })
 
 export const config = {
