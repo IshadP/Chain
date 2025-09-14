@@ -1,6 +1,6 @@
 // src/lib/blockchain.ts
 import { ethers } from 'ethers'
-import SupplyChainABI from './contracts/contracts/SupplyChain.sol/SupplyChain.json'
+import SupplyChainABI from '../../lib/contracts/contracts/SupplyChain.sol/SupplyChain.json'
 
 // Replace with your deployed contract address
 const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS!
@@ -39,10 +39,10 @@ export class BlockchainService {
       
       return {
         batchId: batchData.batchId,
-        quantity: batchData.quantity.toNumber(),
+        quantity: Number(batchData.quantity),
         userId: batchData.userId,
         internalBatchName: batchData.internalBatchName,
-        manufacturingDate: batchData.manufacturingDate.toNumber(),
+        manufacturingDate: Number(batchData.manufacturingDate),
         status: batchData.status,
         currentLocation: batchData.currentLocation,
         currentHolder: batchData.currentHolder,
@@ -75,8 +75,6 @@ export class BlockchainService {
 
   async getBatchesByUser(userId: string): Promise<BatchData[]> {
     try {
-      // This is the old method - keeping for backward compatibility
-      // Use getBatchesByClerkUserId instead for Clerk integration
       const batchIds = await this.contract.getBatchesByUser(userId)
       const batches: BatchData[] = []
 
@@ -94,7 +92,6 @@ export class BlockchainService {
     }
   }
 
-  // New method specifically for getting batches with Supabase product data
   async getBatchesWithProductData(clerkUserId: string, productBatchIds: string[]): Promise<BatchData[]> {
     try {
       const batches: BatchData[] = []
@@ -115,4 +112,46 @@ export class BlockchainService {
       return []
     }
   }
+
+  // Helper method to format manufacturing date
+  formatManufacturingDate(timestamp: number): string {
+    return new Date(timestamp * 1000).toLocaleDateString()
+  }
+
+  // Helper method to get status color
+  getStatusColor(status: string): string {
+    switch (status.toLowerCase()) {
+      case 'created':
+      case 'manufactured':
+        return 'bg-blue-100 text-blue-800'
+      case 'in transit':
+      case 'in_transit':
+        return 'bg-yellow-100 text-yellow-800'
+      case 'delivered to distributor':
+      case 'delivered_to_distributor':
+        return 'bg-green-100 text-green-800'
+      case 'delivered to retailer':
+      case 'delivered_to_retailer':
+        return 'bg-purple-100 text-purple-800'
+      case 'delivered to consumer':
+      case 'delivered_to_consumer':
+        return 'bg-gray-100 text-gray-800'
+      default:
+        return 'bg-gray-100 text-gray-800'
+    }
+  }
+}
+
+// Function to get a contract instance with a signer for writing transactions
+export async function getContractInstance(): Promise<ethers.Contract> {
+  const provider = new ethers.JsonRpcProvider(
+    process.env.NEXT_PUBLIC_RPC_URL || 'http://localhost:8545'
+  )
+  const wallet = new ethers.Wallet(process.env.PRIVATE_KEY!, provider)
+  const contract = new ethers.Contract(
+    CONTRACT_ADDRESS,
+    SupplyChainABI.abi,
+    wallet
+  )
+  return contract
 }

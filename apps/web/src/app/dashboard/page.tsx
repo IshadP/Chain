@@ -115,7 +115,7 @@ export default function ManufacturerPage() {
             <Link href="/" className="text-xl font-semibold">
               SupChain
             </Link>
-            <Link href="/add-product">
+            <Link href="/create-batch">
               <Button className="bg-teal-600 hover:bg-teal-700 text-white">
                 <Plus className="w-4 h-4 mr-2" />
                 Add Product
@@ -150,7 +150,7 @@ export default function ManufacturerPage() {
         {products.length === 0 ? (
           <div className="text-center py-12">
             <div className="text-muted-foreground mb-4">No products found</div>
-            <Link href="/add-product">
+            <Link href="/create-batch">
               <Button className="bg-teal-600 hover:bg-teal-700 text-white">
                 <Plus className="w-4 h-4 mr-2" />
                 Add Your First Product

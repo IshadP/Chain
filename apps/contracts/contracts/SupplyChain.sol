@@ -15,11 +15,10 @@ contract SupplyChain {
     // --- State Machine for Batch Status ---
     enum Status {
         Created,                 // 0: Batch just created by manufacturer
-        InTransitToDistributor,  // 1: Shipped by manufacturer to distributor
-        AtDistributor,           // 2: Received by distributor
-        InTransitToRetailer,     // 3: Shipped by distributor to retailer
-        AtRetailer,              // 4: Received by retailer
-        Sold                     // 5: Marked as sold by retailer
+        InTransit,               // 1: Shipped by manufacturer or distributor
+        DeliveredToDistributor,  // 2: Received by distributor
+        DeliveredToRetailer,     // 3: Received by retailer
+        DeliveredToConsumer      // 4: Marked as sold/delivered to consumer
     }
 
     // --- Core Data Structure ---
@@ -92,7 +91,7 @@ contract SupplyChain {
         newBatch.status = Status.Created;
         newBatch.currentLocation = _initialLocation;
         newBatch.currentHolder = manufacturer;
-        newBatch.history.push("Batch Created by Manufacturer");
+        newBatch.history.push("Batch created by manufacturer");
 
         allBatchIds.push(_batchId);
         userBatches[_userId].push(_batchId);
@@ -116,28 +115,35 @@ contract SupplyChain {
         Status currentStatus = batch.status;
         string memory historyMessage;
 
-        if (_newStatus == Status.InTransitToDistributor) {
-            require(currentStatus == Status.Created, "Batch must be in Created state");
-            require(msg.sender == manufacturer, "Only manufacturer can ship to distributor");
-            historyMessage = "Shipped to Distributor";
-        } else if (_newStatus == Status.AtDistributor) {
-            require(currentStatus == Status.InTransitToDistributor, "Batch must be in transit to distributor");
+        if (_newStatus == Status.InTransit) {
+            require(
+                currentStatus == Status.Created || 
+                currentStatus == Status.DeliveredToDistributor, 
+                "Invalid status transition to in transit"
+            );
+            require(
+                msg.sender == manufacturer || msg.sender == distributor, 
+                "Only manufacturer or distributor can mark as in transit"
+            );
+            if (currentStatus == Status.Created) {
+                historyMessage = "Shipped by manufacturer to distributor";
+            } else {
+                historyMessage = "Shipped by distributor to retailer";
+            }
+        } else if (_newStatus == Status.DeliveredToDistributor) {
+            require(currentStatus == Status.InTransit, "Batch must be in transit");
             require(msg.sender == distributor, "Only distributor can receive batch");
             batch.currentHolder = distributor;
-            historyMessage = "Received by Distributor";
-        } else if (_newStatus == Status.InTransitToRetailer) {
-            require(currentStatus == Status.AtDistributor, "Batch must be at distributor");
-            require(msg.sender == distributor, "Only distributor can ship to retailer");
-            historyMessage = "Shipped to Retailer";
-        } else if (_newStatus == Status.AtRetailer) {
-            require(currentStatus == Status.InTransitToRetailer, "Batch must be in transit to retailer");
+            historyMessage = "Delivered to distributor";
+        } else if (_newStatus == Status.DeliveredToRetailer) {
+            require(currentStatus == Status.InTransit, "Batch must be in transit from distributor");
             require(msg.sender == retailer, "Only retailer can receive batch");
             batch.currentHolder = retailer;
-            historyMessage = "Received by Retailer";
-        } else if (_newStatus == Status.Sold) {
-            require(currentStatus == Status.AtRetailer, "Batch must be at retailer");
-            require(msg.sender == retailer, "Only retailer can sell batch");
-            historyMessage = "Batch marked as Sold";
+            historyMessage = "Delivered to retailer";
+        } else if (_newStatus == Status.DeliveredToConsumer) {
+            require(currentStatus == Status.DeliveredToRetailer, "Batch must be at retailer");
+            require(msg.sender == retailer, "Only retailer can deliver to consumer");
+            historyMessage = "Delivered to consumer";
         } else {
             revert("Invalid status transition");
         }
@@ -154,6 +160,7 @@ contract SupplyChain {
     /**
      * @dev Retrieves all details for a specific batch, formatted for the client.
      * This is the 'getBatch' function your frontend service requires.
+     * Returns data in the exact format expected by the TypeScript BatchData interface.
      */
     function getBatch(string memory _batchId)
         external
@@ -201,14 +208,14 @@ contract SupplyChain {
     
     /**
      * @dev Converts a Status enum to its string representation for easier client-side consumption.
+     * Returns status strings that match the expectations in the TypeScript service.
      */
     function _getStatusString(Status _status) internal pure returns (string memory) {
-        if (_status == Status.Created) return "Created";
-        if (_status == Status.InTransitToDistributor) return "InTransitToDistributor";
-        if (_status == Status.AtDistributor) return "AtDistributor";
-        if (_status == Status.InTransitToRetailer) return "InTransitToRetailer";
-        if (_status == Status.AtRetailer) return "AtRetailer";
-        if (_status == Status.Sold) return "Sold";
+        if (_status == Status.Created) return "manufactured";
+        if (_status == Status.InTransit) return "in transit";
+        if (_status == Status.DeliveredToDistributor) return "delivered to distributor";
+        if (_status == Status.DeliveredToRetailer) return "delivered to retailer";
+        if (_status == Status.DeliveredToConsumer) return "delivered to consumer";
         revert("Invalid status");
     }
 
@@ -241,5 +248,17 @@ contract SupplyChain {
         require(_newRetailer != address(0), "Invalid address");
         retailer = _newRetailer;
     }
-}
 
+    /**
+     * @dev Emergency function to allow manufacturer to update batch holder in case of issues
+     */
+    function updateBatchHolder(string memory _batchId, address _newHolder) 
+        external 
+        onlyRole(manufacturer) 
+        batchExists(_batchId) 
+    {
+        require(_newHolder != address(0), "Invalid holder address");
+        batches[_batchId].currentHolder = _newHolder;
+        batches[_batchId].history.push("Holder updated by manufacturer");
+    }
+}
