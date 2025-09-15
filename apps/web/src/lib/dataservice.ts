@@ -550,10 +550,10 @@ export class DataService {
       const statusBreakdown: Record<string, number> = {}
       products.forEach(p => {
         if (p.batchData?.status) {
-          const status = p.batchData.status
+          const status = p.batchData.status.toLowerCase()
           statusBreakdown[status] = (statusBreakdown[status] || 0) + 1
         } else {
-          statusBreakdown['No Blockchain Data'] = (statusBreakdown['No Blockchain Data'] || 0) + 1
+          statusBreakdown['no blockchain data'] = (statusBreakdown['no blockchain data'] || 0) + 1
         }
       })
 

@@ -2,8 +2,8 @@
   "_format": "hh-sol-cache-2",
   "files": {
     "G:\\dev\\SupplyChain\\apps\\contracts\\contracts\\SupplyChain.sol": {
-      "lastModificationDate": 1757941651639,
-      "contentHash": "900f4a654aa7026859b269c851e22be2",
+      "lastModificationDate": 1757952911329,
+      "contentHash": "cb7b3d3398fbfc9839e5fce1dfa5dd2d",
       "sourceName": "contracts/SupplyChain.sol",
       "solcConfig": {
         "version": "0.8.28",

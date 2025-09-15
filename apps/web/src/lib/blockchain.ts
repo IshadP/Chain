@@ -34,19 +34,14 @@ export class BlockchainService {
 
   async getBatchData(batchId: string): Promise<BatchData | null> {
     try {
-      // First, check if the batch exists using the new non-reverting function
       const exists = await this.contract.batchExistsView(batchId)
-
       if (!exists) {
-        // This is not an error, but an expected state where data is not synced.
-        // We log a warning for debugging and return null.
         console.warn(
           `Batch with ID ${batchId} not found on the blockchain. It might exist only in the database.`
         )
         return null
       }
 
-      // If it exists, then fetch the full data. This call should now always succeed.
       const batchData = await this.contract.getBatch(batchId)
 
       return {
@@ -60,7 +55,6 @@ export class BlockchainService {
         currentHolder: batchData.currentHolder,
       }
     } catch (error) {
-      // This catch block will now only handle unexpected errors, like network issues.
       console.error('An unexpected error occurred while fetching batch data:', error)
       return null
     }
@@ -68,17 +62,14 @@ export class BlockchainService {
 
   async getAllBatches(): Promise<BatchData[]> {
     try {
-      // Assuming your contract has a function to get all batch IDs
       const batchIds = await this.contract.getAllBatchIds()
       const batches: BatchData[] = []
-
       for (const batchId of batchIds) {
         const batchData = await this.getBatchData(batchId)
         if (batchData) {
           batches.push(batchData)
         }
       }
-
       return batches
     } catch (error) {
       console.error('Error fetching all batches:', error)
@@ -90,14 +81,12 @@ export class BlockchainService {
     try {
       const batchIds = await this.contract.getBatchesByUser(userId)
       const batches: BatchData[] = []
-
       for (const batchId of batchIds) {
         const batchData = await this.getBatchData(batchId)
         if (batchData) {
           batches.push(batchData)
         }
       }
-
       return batches
     } catch (error) {
       console.error('Error fetching user batches:', error)
@@ -108,8 +97,6 @@ export class BlockchainService {
   async getBatchesWithProductData(clerkUserId: string, productBatchIds: string[]): Promise<BatchData[]> {
     try {
       const batches: BatchData[] = []
-
-      // Get batch data for each batch_id from Supabase products
       for (const batchId of productBatchIds) {
         if (batchId) {
           const batchData = await this.getBatchData(batchId)
@@ -118,7 +105,6 @@ export class BlockchainService {
           }
         }
       }
-
       return batches
     } catch (error) {
       console.error('Error fetching batches with product data:', error)
@@ -126,28 +112,24 @@ export class BlockchainService {
     }
   }
 
-  // Helper method to format manufacturing date
   formatManufacturingDate(timestamp: number): string {
     return new Date(timestamp * 1000).toLocaleDateString()
   }
 
-  // Helper method to get status color
   getStatusColor(status: string): string {
     switch (status.toLowerCase()) {
       case 'created':
       case 'manufactured':
         return 'bg-blue-100 text-blue-800'
-      case 'in transit':
-      case 'in_transit':
+      case 'dispatched by manufacturer':
         return 'bg-yellow-100 text-yellow-800'
       case 'delivered to distributor':
-      case 'delivered_to_distributor':
         return 'bg-green-100 text-green-800'
+      case 'dispatched by distributor':
+        return 'bg-orange-100 text-orange-800'
       case 'delivered to retailer':
-      case 'delivered_to_retailer':
         return 'bg-purple-100 text-purple-800'
       case 'delivered to consumer':
-      case 'delivered_to_consumer':
         return 'bg-gray-100 text-gray-800'
       default:
         return 'bg-gray-100 text-gray-800'
@@ -155,16 +137,42 @@ export class BlockchainService {
   }
 }
 
-// Function to get a contract instance with a signer for writing transactions
-export async function getContractInstance(): Promise<ethers.Contract> {
+// Define the Role type
+export type Role = 'manufacturer' | 'distributor' | 'retailer';
+
+// Updated function to get a contract instance with a signer based on the role
+export async function getContractInstance(role: Role): Promise<ethers.Contract> {
   const provider = new ethers.JsonRpcProvider(
     process.env.NEXT_PUBLIC_RPC_URL || 'http://localhost:8545'
-  )
-  const wallet = new ethers.Wallet(process.env.PRIVATE_KEY!, provider)
+  );
+
+  let privateKey: string | undefined;
+
+  // Select the appropriate private key from environment variables
+  switch (role) {
+    case 'manufacturer':
+      privateKey = process.env.MANUFACTURER_PRIVATE_KEY;
+      break;
+    case 'distributor':
+      privateKey = process.env.DISTRIBUTOR_PRIVATE_KEY;
+      break;
+    case 'retailer':
+      privateKey = process.env.RETAILER_PRIVATE_KEY;
+      break;
+    default:
+      throw new Error(`Invalid role specified: ${role}`);
+  }
+
+  if (!privateKey) {
+    throw new Error(`Private key for role "${role}" is not set in environment variables.`);
+  }
+
+  const wallet = new ethers.Wallet(privateKey, provider);
   const contract = new ethers.Contract(
     CONTRACT_ADDRESS,
     SupplyChainABI.abi,
     wallet
-  )
-  return contract
+  );
+
+  return contract;
 }

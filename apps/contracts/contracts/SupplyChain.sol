@@ -15,26 +15,24 @@ contract SupplyChain {
     // --- State Machine for Batch Status ---
     enum Status {
         Created,                 // 0: Batch just created by manufacturer
-        InTransit,               // 1: Shipped by manufacturer or distributor
+        DispatchedByManufacturer,// 1: Shipped by manufacturer
         DeliveredToDistributor,  // 2: Received by distributor
-        DeliveredToRetailer,  
-        // 3: Received by retailer
-        DeliveredToConsumer      // 4: Marked as sold/delivered to consumer
+        DispatchedByDistributor, // 3: Shipped by distributor
+        DeliveredToRetailer,     // 4: Received by retailer
+        DeliveredToConsumer      // 5: Marked as sold/delivered to consumer
     }
 
     // --- Core Data Structure ---
-    // This struct is aligned with the BatchData interface in the TypeScript service.
     struct Batch {
         string batchId;
         uint256 quantity;
         string userId;
-        // Associated user ID (e.g., from Clerk/Supabase)
         string internalBatchName;
         uint256 manufacturingDate;
         Status status;
         string currentLocation;
         address currentHolder;
-        string[] history; // A log of all actions performed on the batch
+        string[] history;
     }
 
     // --- State Variables ---
@@ -45,6 +43,7 @@ contract SupplyChain {
     // --- Events ---
     event BatchCreated(string batchId, string internalBatchName, uint256 quantity, string userId);
     event BatchStatusUpdated(string batchId, string newStatus, address by, string location);
+    event BatchTransferred(string batchId, address from, address to, string location);
 
     // --- Modifiers for Access Control ---
     modifier onlyRole(address role) {
@@ -53,7 +52,6 @@ contract SupplyChain {
     }
 
     modifier batchExists(string memory _batchId) {
-        // A batch exists if its manufacturingDate is not 0, which is set only on creation.
         require(batches[_batchId].manufacturingDate != 0, "Batch does not exist");
         _;
     }
@@ -64,15 +62,6 @@ contract SupplyChain {
         retailer = _retailer;
     }
 
-    /**
-     * @dev Allows the manufacturer to create a new batch of products.
-     * The batch ID is provided by the client to link with off-chain data.
-     * @param _batchId A unique identifier for the batch (e.g., UUID from frontend).
-     * @param _quantity Number of items in the batch.
-     * @param _userId The ID of the user creating the batch.
-     * @param _internalBatchName A user-defined name or code for the batch.
-     * @param _initialLocation The starting location of the batch.
-     */
     function createBatch(
         string memory _batchId,
         uint256 _quantity,
@@ -83,6 +72,7 @@ contract SupplyChain {
         require(bytes(_batchId).length > 0, "Batch ID cannot be empty");
         require(batches[_batchId].manufacturingDate == 0, "Batch ID already exists");
         require(_quantity > 0, "Quantity must be greater than zero");
+
         Batch storage newBatch = batches[_batchId];
         newBatch.batchId = _batchId;
         newBatch.quantity = _quantity;
@@ -91,7 +81,7 @@ contract SupplyChain {
         newBatch.manufacturingDate = block.timestamp;
         newBatch.status = Status.Created;
         newBatch.currentLocation = _initialLocation;
-        newBatch.currentHolder = manufacturer;
+        newBatch.currentHolder = manufacturer; // Correctly sets the manufacturer as the initial holder
         newBatch.history.push("Batch created by manufacturer");
 
         allBatchIds.push(_batchId);
@@ -100,13 +90,6 @@ contract SupplyChain {
         emit BatchCreated(_batchId, _internalBatchName, _quantity, _userId);
     }
 
-    /**
-     * @dev Updates the status of a batch, enforcing the supply chain workflow.
-     * Also updates the batch's current holder and location.
-     * @param _batchId The ID of the batch to update.
-     * @param _newStatus The target status to move the batch to.
-     * @param _newLocation The new physical location of the batch.
-     */
     function updateBatchStatus(
         string memory _batchId,
         Status _newStatus,
@@ -116,33 +99,26 @@ contract SupplyChain {
         Status currentStatus = batch.status;
         string memory historyMessage;
 
-        if (_newStatus == Status.InTransit) {
-            require(
-                currentStatus == Status.Created || 
-                currentStatus == Status.DeliveredToDistributor, 
-                "Invalid status transition to in transit"
-            );
-            require(
-                msg.sender == manufacturer || msg.sender == distributor, 
-                "Only manufacturer or distributor can mark as in transit"
-            );
-            if (currentStatus == Status.Created) {
-                historyMessage = "Shipped by manufacturer to distributor";
-            } else {
-                historyMessage = "Shipped by distributor to retailer";
-            }
+        if (_newStatus == Status.DispatchedByManufacturer) {
+            require(currentStatus == Status.Created, "Invalid status transition");
+            require(msg.sender == manufacturer, "Only manufacturer can dispatch");
+            historyMessage = "Dispatched by manufacturer";
         } else if (_newStatus == Status.DeliveredToDistributor) {
-            require(currentStatus == Status.InTransit, "Batch must be in transit");
-            require(msg.sender == distributor, "Only distributor can receive batch");
+            require(currentStatus == Status.DispatchedByManufacturer, "Batch not dispatched by manufacturer");
+            require(msg.sender == distributor, "Only distributor can receive");
             batch.currentHolder = distributor;
             historyMessage = "Delivered to distributor";
+        } else if (_newStatus == Status.DispatchedByDistributor) {
+            require(currentStatus == Status.DeliveredToDistributor, "Invalid status transition");
+            require(msg.sender == distributor, "Only distributor can dispatch");
+            historyMessage = "Dispatched by distributor";
         } else if (_newStatus == Status.DeliveredToRetailer) {
-            require(currentStatus == Status.InTransit, "Batch must be in transit from distributor");
-            require(msg.sender == retailer, "Only retailer can receive batch");
+            require(currentStatus == Status.DispatchedByDistributor, "Batch not dispatched by distributor");
+            require(msg.sender == retailer, "Only retailer can receive");
             batch.currentHolder = retailer;
             historyMessage = "Delivered to retailer";
         } else if (_newStatus == Status.DeliveredToConsumer) {
-            require(currentStatus == Status.DeliveredToRetailer, "Batch must be at retailer");
+            require(currentStatus == Status.DeliveredToRetailer, "Batch not at retailer");
             require(msg.sender == retailer, "Only retailer can deliver to consumer");
             historyMessage = "Delivered to consumer";
         } else {
@@ -156,23 +132,32 @@ contract SupplyChain {
         emit BatchStatusUpdated(_batchId, _getStatusString(_newStatus), msg.sender, _newLocation);
     }
 
+    function transferBatchOwnership(
+        string memory _batchId,
+        address _newHolder,
+        string memory _newLocation
+    ) external batchExists(_batchId) {
+        Batch storage batch = batches[_batchId];
+        require(msg.sender == batch.currentHolder, "Only current holder can transfer");
+        require(_newHolder != address(0), "Invalid new holder address");
+        require(_newHolder != batch.currentHolder, "Cannot transfer to the same holder");
+
+        address oldHolder = batch.currentHolder;
+        batch.currentHolder = _newHolder;
+        batch.currentLocation = _newLocation;
+
+        string memory historyMessage = "Ownership transferred";
+        batch.history.push(historyMessage);
+
+        emit BatchTransferred(_batchId, oldHolder, _newHolder, _newLocation);
+    }
+
     // ===== View Functions =====
 
-    /**
-     * @dev Checks if a batch exists without reverting.
-     * @param _batchId The ID of the batch to check.
-     * @return bool True if the batch exists, false otherwise.
-     */
     function batchExistsView(string memory _batchId) external view returns (bool) {
-        // A batch exists if its manufacturingDate is not 0.
         return batches[_batchId].manufacturingDate != 0;
     }
 
-    /**
-     * @dev Retrieves all details for a specific batch, formatted for the client.
-     * This is the 'getBatch' function your frontend service requires.
-     * Returns data in the exact format expected by the TypeScript BatchData interface.
-     */
     function getBatch(string memory _batchId)
         external
         view
@@ -182,7 +167,6 @@ contract SupplyChain {
             uint256 quantity,
             string memory userId,
             string memory internalBatchName,
-     
             uint256 manufacturingDate,
             string memory status,
             string memory currentLocation,
@@ -199,74 +183,45 @@ contract SupplyChain {
             _getStatusString(b.status),
             b.currentLocation,
             b.currentHolder
-   
         );
     }
 
-    /**
-     * @dev Returns an array of all batch IDs ever created.
-     * This is the function to get all batch IDs that your frontend service requires.
-     */
     function getAllBatchIds() external view returns (string[] memory) {
         return allBatchIds;
     }
 
-    /**
-     * @dev Returns an array of batch IDs created by a specific user.
-     * Corresponds to `getBatchesByUser` in the TypeScript service.
-     */
     function getBatchesByUser(string memory _userId) external view returns (string[] memory) {
         return userBatches[_userId];
     }
     
-    /**
-     * @dev Converts a Status enum to its string representation for easier client-side consumption.
-     * Returns status strings that match the expectations in the TypeScript service.
-     */
     function _getStatusString(Status _status) internal pure returns (string memory) {
         if (_status == Status.Created) return "manufactured";
-        if (_status == Status.InTransit) return "in transit";
+        if (_status == Status.DispatchedByManufacturer) return "dispatched by manufacturer";
         if (_status == Status.DeliveredToDistributor) return "delivered to distributor";
+        if (_status == Status.DispatchedByDistributor) return "dispatched by distributor";
         if (_status == Status.DeliveredToRetailer) return "delivered to retailer";
         if (_status == Status.DeliveredToConsumer) return "delivered to consumer";
         revert("Invalid status");
     }
 
-    /**
-     * @dev Returns the full history log for a specific batch.
-     */
     function getBatchHistory(string memory _batchId) external view batchExists(_batchId) returns (string[] memory) {
         return batches[_batchId].history;
     }
     
-    /**
-     * @dev Returns the total number of batches created.
-     */
     function getBatchCount() external view returns (uint256) {
         return allBatchIds.length;
     }
 
-    /**
-     * @dev Allows changing the distributor address.
-     Only callable by the manufacturer.
-     */
     function setDistributor(address _newDistributor) external onlyRole(manufacturer) {
         require(_newDistributor != address(0), "Invalid address");
         distributor = _newDistributor;
     }
 
-    /**
-     * @dev Allows changing the retailer address.
-     Only callable by the manufacturer.
-     */
     function setRetailer(address _newRetailer) external onlyRole(manufacturer) {
         require(_newRetailer != address(0), "Invalid address");
         retailer = _newRetailer;
     }
 
-    /**
-     * @dev Emergency function to allow manufacturer to update batch holder in case of issues
-     */
     function updateBatchHolder(string memory _batchId, address _newHolder) 
         external 
         onlyRole(manufacturer) 

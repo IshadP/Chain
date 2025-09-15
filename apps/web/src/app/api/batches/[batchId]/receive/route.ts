@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs'
+import { auth } from '@clerk/nextjs/server'
 import { getContractInstance } from '@/lib/blockchain'
 
 export async function POST(
@@ -7,16 +7,23 @@ export async function POST(
   { params }: { params: { batchId: string } }
 ) {
   try {
-    const { userId } = auth()
+    const { userId } = await auth()
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
     const { batchId } = params
+    const body = await request.json()
+    const { location } = body
+
+    if (!location) {
+        return NextResponse.json({ error: 'Location is required' }, { status: 400 })
+    }
 
     // Mark batch as received on blockchain
     const contract = await getContractInstance()
-    const tx = await contract.markReceived(batchId)
+    // 2 corresponds to DeliveredToDistributor
+    const tx = await contract.updateBatchStatus(batchId, 2, location)
     await tx.wait()
 
     return NextResponse.json({
