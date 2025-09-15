@@ -34,9 +34,21 @@ export class BlockchainService {
 
   async getBatchData(batchId: string): Promise<BatchData | null> {
     try {
-      // Assuming your contract has a getBatch function
+      // First, check if the batch exists using the new non-reverting function
+      const exists = await this.contract.batchExistsView(batchId)
+
+      if (!exists) {
+        // This is not an error, but an expected state where data is not synced.
+        // We log a warning for debugging and return null.
+        console.warn(
+          `Batch with ID ${batchId} not found on the blockchain. It might exist only in the database.`
+        )
+        return null
+      }
+
+      // If it exists, then fetch the full data. This call should now always succeed.
       const batchData = await this.contract.getBatch(batchId)
-      
+
       return {
         batchId: batchData.batchId,
         quantity: Number(batchData.quantity),
@@ -48,7 +60,8 @@ export class BlockchainService {
         currentHolder: batchData.currentHolder,
       }
     } catch (error) {
-      console.error('Error fetching batch data:', error)
+      // This catch block will now only handle unexpected errors, like network issues.
+      console.error('An unexpected error occurred while fetching batch data:', error)
       return null
     }
   }

@@ -17,7 +17,8 @@ contract SupplyChain {
         Created,                 // 0: Batch just created by manufacturer
         InTransit,               // 1: Shipped by manufacturer or distributor
         DeliveredToDistributor,  // 2: Received by distributor
-        DeliveredToRetailer,     // 3: Received by retailer
+        DeliveredToRetailer,  
+        // 3: Received by retailer
         DeliveredToConsumer      // 4: Marked as sold/delivered to consumer
     }
 
@@ -26,7 +27,8 @@ contract SupplyChain {
     struct Batch {
         string batchId;
         uint256 quantity;
-        string userId; // Associated user ID (e.g., from Clerk/Supabase)
+        string userId;
+        // Associated user ID (e.g., from Clerk/Supabase)
         string internalBatchName;
         uint256 manufacturingDate;
         Status status;
@@ -81,7 +83,6 @@ contract SupplyChain {
         require(bytes(_batchId).length > 0, "Batch ID cannot be empty");
         require(batches[_batchId].manufacturingDate == 0, "Batch ID already exists");
         require(_quantity > 0, "Quantity must be greater than zero");
-
         Batch storage newBatch = batches[_batchId];
         newBatch.batchId = _batchId;
         newBatch.quantity = _quantity;
@@ -158,6 +159,16 @@ contract SupplyChain {
     // ===== View Functions =====
 
     /**
+     * @dev Checks if a batch exists without reverting.
+     * @param _batchId The ID of the batch to check.
+     * @return bool True if the batch exists, false otherwise.
+     */
+    function batchExistsView(string memory _batchId) external view returns (bool) {
+        // A batch exists if its manufacturingDate is not 0.
+        return batches[_batchId].manufacturingDate != 0;
+    }
+
+    /**
      * @dev Retrieves all details for a specific batch, formatted for the client.
      * This is the 'getBatch' function your frontend service requires.
      * Returns data in the exact format expected by the TypeScript BatchData interface.
@@ -171,6 +182,7 @@ contract SupplyChain {
             uint256 quantity,
             string memory userId,
             string memory internalBatchName,
+     
             uint256 manufacturingDate,
             string memory status,
             string memory currentLocation,
@@ -187,6 +199,7 @@ contract SupplyChain {
             _getStatusString(b.status),
             b.currentLocation,
             b.currentHolder
+   
         );
     }
 
@@ -234,7 +247,8 @@ contract SupplyChain {
     }
 
     /**
-     * @dev Allows changing the distributor address. Only callable by the manufacturer.
+     * @dev Allows changing the distributor address.
+     Only callable by the manufacturer.
      */
     function setDistributor(address _newDistributor) external onlyRole(manufacturer) {
         require(_newDistributor != address(0), "Invalid address");
@@ -242,7 +256,8 @@ contract SupplyChain {
     }
 
     /**
-     * @dev Allows changing the retailer address. Only callable by the manufacturer.
+     * @dev Allows changing the retailer address.
+     Only callable by the manufacturer.
      */
     function setRetailer(address _newRetailer) external onlyRole(manufacturer) {
         require(_newRetailer != address(0), "Invalid address");
