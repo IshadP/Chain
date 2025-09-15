@@ -1,6 +1,7 @@
 {
-  "/api/batches/[batchId]/transfer/route": "app/api/batches/[batchId]/transfer/route.js",
+  "/_not-found/page": "app/_not-found/page.js",
   "/api/batches/route": "app/api/batches/route.js",
   "/create-batch/page": "app/create-batch/page.js",
+  "/dashboard/page": "app/dashboard/page.js",
   "/favicon.ico/route": "app/favicon.ico/route.js"
 }
