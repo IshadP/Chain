@@ -154,6 +154,7 @@ export default function CreateBatchPage() {
           ...formData,
           quantity: parseInt(formData.quantity),
           cost: parseFloat(formData.cost),
+          role: userRole, // <-- FIX: Added the user's role here
         }),
       })
 

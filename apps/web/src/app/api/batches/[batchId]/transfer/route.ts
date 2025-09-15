@@ -1,99 +1,80 @@
-// src/app/api/batches/[batchId]/transfer/route.ts
-import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
-import { ethers } from 'ethers'
-import { getContractInstance, Role } from '@/lib/blockchain'
+import { NextRequest, NextResponse } from 'next/server';
+import { auth, clerkClient } from '@clerk/nextjs/server';
+import { getContractInstance, Role } from '@/lib/blockchain';
+import { ethers } from 'ethers';
 
-// Define interfaces for the two types of requests
-interface StatusUpdateRequest {
-  type: 'statusUpdate'
-  newStatus: number
-  newLocation: string
-}
-
-interface OwnershipTransferRequest {
-  type: 'ownershipTransfer'
-  newHolderAddress: string
-  newLocation: string
-}
-
-type TransferRequest = StatusUpdateRequest | OwnershipTransferRequest
-
-async function handleStatusUpdate(contract: ethers.Contract, batchId: string, newStatus: number, newLocation: string) {
-  try {
-    const tx = await contract.updateBatchStatus(batchId, newStatus, newLocation)
-    const receipt = await tx.wait()
-    return NextResponse.json({
-      success: true,
-      message: 'Batch status updated successfully',
-      transactionHash: tx.hash,
-    })
-  } catch (contractError: any) {
-    console.error('Contract error during status update:', contractError)
-    const errorMessage = contractError.reason || 'Status update failed on-chain'
-    return NextResponse.json({ error: 'Status update failed', details: errorMessage }, { status: 400 })
-  }
-}
-
-async function handleOwnershipTransfer(contract: ethers.Contract, batchId: string, newHolderAddress: string, newLocation: string) {
-  try {
-    const tx = await contract.transferBatchOwnership(batchId, newHolderAddress, newLocation)
-    const receipt = await tx.wait()
-    return NextResponse.json({
-      success: true,
-      message: 'Batch ownership transferred successfully',
-      transactionHash: tx.hash,
-    })
-  } catch (contractError: any) {
-    console.error('Contract error during ownership transfer:', contractError)
-    const errorMessage = contractError.reason || 'Ownership transfer failed on-chain'
-    return NextResponse.json({ error: 'Ownership transfer failed', details: errorMessage }, { status: 400 })
-  }
-}
-
+// This is the function handler for POST requests
 export async function POST(
   request: NextRequest,
   { params }: { params: { batchId: string } }
 ) {
   try {
-    const { sessionClaims } = auth();
-    if (!sessionClaims) {
+    // 1. Authenticate the user and get their ID
+    const { userId } = await auth();
+    if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const userRole = sessionClaims.publicMetadata?.role as Role;
-    if (!userRole || !['manufacturer', 'distributor', 'retailer'].includes(userRole)) {
-        return NextResponse.json({ error: 'Invalid or missing role for this action' }, { status: 403 });
+    // 2. Verify the user has the 'manufacturer' role
+    const client = await clerkClient();
+const user = await client.users.getUser(userId);
+const userRole = user.publicMetadata?.role as string;
+
+    if (userRole !== 'manufacturer') {
+      return NextResponse.json(
+        { error: 'Access Denied: Only manufacturers can transfer batches.' },
+        { status: 403 }
+      );
     }
 
-    const { batchId } = params;
-    if (!batchId) {
-      return NextResponse.json({ error: 'Batch ID is required' }, { status: 400 });
+    // 3. Get data from the request
+    const { batchId } = await params;
+    const body = await request.json();
+    const { newHolderAddress, newLocation } = body;
+
+    // 4. Validate the incoming data
+    if (!newHolderAddress || !newLocation) {
+      return NextResponse.json(
+        { error: 'Missing required fields: newHolderAddress and newLocation are required' },
+        { status: 400 }
+      );
+    }
+    if (!ethers.isAddress(newHolderAddress)) {
+        return NextResponse.json(
+          { error: 'Invalid Ethereum address for the new holder.' },
+          { status: 400 }
+        );
     }
 
-    const body: TransferRequest = await request.json();
-    const contract = await getContractInstance(userRole);
+    console.log(`Transferring batch ${batchId} by user ${userId} (Role: ${userRole})`);
 
-    if (body.type === 'statusUpdate') {
-      const { newStatus, newLocation } = body as StatusUpdateRequest;
-      if (newStatus === undefined || !newLocation) {
-        return NextResponse.json({ error: 'Missing fields for status update' }, { status: 400 });
-      }
-      return await handleStatusUpdate(contract, batchId, newStatus, newLocation);
+    // 5. Interact with the smart contract
+    const contract = await getContractInstance(userRole as Role);
 
-    } else if (body.type === 'ownershipTransfer') {
-      const { newHolderAddress, newLocation } = body as OwnershipTransferRequest;
-      if (!newHolderAddress || !newLocation || !ethers.isAddress(newHolderAddress)) {
-        return NextResponse.json({ error: 'Invalid fields for ownership transfer' }, { status: 400 });
-      }
-      return await handleOwnershipTransfer(contract, batchId, newHolderAddress, newLocation);
+    // ✅ FIX: The function name is now corrected to match your Solidity contract
+    const tx = await contract.transferBatchOwnership(
+      batchId, 
+      newHolderAddress, 
+      newLocation
+    );
+    
+    await tx.wait();
 
-    } else {
-      return NextResponse.json({ error: 'Invalid request type specified' }, { status: 400 });
-    }
+    console.log(`Transaction successful: ${tx.hash}`);
+
+    // 6. Return a success response
+    return NextResponse.json({
+      success: true,
+      message: 'Batch transferred successfully',
+      transactionHash: tx.hash,
+    });
+
   } catch (error) {
-    console.error('Error in transfer route:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Unknown server error';
-    return NextResponse.json({ error: 'Request failed', details: errorMessage }, { status: 500 });
+    console.error('Transfer failed:', error);
+    const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
+    return NextResponse.json(
+      { error: 'Failed to transfer batch', details: errorMessage },
+      { status: 500 }
+    );
   }
 }

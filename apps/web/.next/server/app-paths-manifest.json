@@ -4,5 +4,6 @@
   "/api/batches/route": "app/api/batches/route.js",
   "/create-batch/page": "app/create-batch/page.js",
   "/dashboard/page": "app/dashboard/page.js",
-  "/favicon.ico/route": "app/favicon.ico/route.js"
+  "/favicon.ico/route": "app/favicon.ico/route.js",
+  "/onboarding/page": "app/onboarding/page.js"
 }

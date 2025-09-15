@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
+import { auth, clerkClient } from '@clerk/nextjs/server'
 import { ethers } from 'ethers'
 import { v4 as uuidv4 } from 'uuid'
-import { getContractInstance } from '@/lib/blockchain'
+// Make sure this import path is correct and Role is exported
+import { getContractInstance, Role } from '@/lib/blockchain'
 import { generateQRToken } from '@/lib/qr'
 import { SupabaseService, CreateProductInput } from '@/lib/supabase'
 
@@ -18,6 +19,7 @@ interface CreateBatchRequest {
   quantity: number
   initialLocation: string
   distributorAddress: string
+  role: Role // <-- Added role to the interface
 }
 
 export async function POST(request: NextRequest) {
@@ -39,7 +41,19 @@ export async function POST(request: NextRequest) {
       quantity,
       initialLocation,
       distributorAddress,
+      role, // <-- FIX 1: Read the role from the request body
     } = body
+
+    // New validation for the role
+    if (!role || !['manufacturer', 'distributor', 'retailer'].includes(role)) {
+      return NextResponse.json(
+        {
+          error: 'Invalid or missing role',
+          details: 'A valid role (manufacturer, distributor, retailer) is required.',
+        },
+        { status: 400 }
+      )
+    }
 
     if (
       !name ||
@@ -88,12 +102,11 @@ export async function POST(request: NextRequest) {
       cost,
       quantity,
       category,
+      role, // Log the role to confirm
     })
 
-    // Generate a UUID for both product.id and batch_id
     const batchId = uuidv4()
 
-    // Step 1: Create Product in Supabase with UUID
     const productData: CreateProductInput = {
       id: batchId,
       user_id: userId,
@@ -115,13 +128,13 @@ export async function POST(request: NextRequest) {
 
     try {
       // Step 2: Create Batch on the Blockchain using the UUID
-      const contract = await getContractInstance()
+      // FIX 2: Pass the role to get a signed contract instance
+      const contract = await getContractInstance(role)
       console.log('Creating blockchain batch with ID:', batchId)
 
       const tx = await contract.createBatch(
         batchId,
         quantity,
-        // NOTE: replace userId with signer address if contract expects an Ethereum account
         userId,
         internalBatchName,
         initialLocation
@@ -131,7 +144,6 @@ export async function POST(request: NextRequest) {
       await tx.wait()
       console.log('Blockchain transaction confirmed')
 
-      // Step 3: Generate QR Code for tracking
       const token = generateQRToken(batchId)
       const baseUrl =
         process.env.NEXTJS_URL ||
@@ -158,13 +170,10 @@ export async function POST(request: NextRequest) {
       } catch (cleanupError) {
         console.error('Failed to cleanup Supabase entry:', cleanupError)
       }
-      throw new Error(
-        `Blockchain transaction failed: ${
-          blockchainError instanceof Error
-            ? blockchainError.message
-            : 'Unknown blockchain error'
-        }`
-      )
+      
+      const errorMessage = blockchainError instanceof Error ? blockchainError.message : 'Unknown blockchain error';
+      // This is where the error you are seeing is coming from
+      throw new Error(`Blockchain transaction failed: ${errorMessage}`)
     }
   } catch (error) {
     console.error('Error creating batch:', error)
@@ -173,7 +182,8 @@ export async function POST(request: NextRequest) {
     const isValidationError =
       errorMessage.includes('Missing required fields') ||
       errorMessage.includes('Invalid values') ||
-      errorMessage.includes('Invalid distributor address')
+      errorMessage.includes('Invalid distributor address') ||
+      errorMessage.includes('Invalid or missing role')
 
     return NextResponse.json(
       {
@@ -185,6 +195,7 @@ export async function POST(request: NextRequest) {
     )
   }
 }
+
 
 export async function GET(request: NextRequest) {
   try {
